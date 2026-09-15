@@ -1,0 +1,28 @@
+# SSH Proxy profile configuration.
+# This file is safe to commit. Keep personal hosts, usernames, and passwords
+# in ssh-proxy-profiles.ini, which is excluded by .gitignore.
+
+[settings]
+# Global defaults. Each server may override these values.
+reconnect = yes
+max_retries = 0
+retry_delay = 5
+max_retry_delay = 60
+
+[gateway]
+host = gateway.example.com
+user = user
+ssh_port = 22
+local_socks_port = 7070
+identity_file = ~/.ssh/id_ed25519
+
+[backup]
+host = backup.example.com
+user = user
+ssh_port = 22
+local_socks_port = 7070
+identity_file = -
+reconnect = no
+max_retries = 3
+retry_delay = 10
+max_retry_delay = 60

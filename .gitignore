@@ -1,0 +1,26 @@
+# Personal profile configuration
+*.ini
+!ssh-proxy-profiles.ini.example
+
+# Saved credentials and other secret material
+/credentials/
+*.b64
+*.pem
+*.key
+id_*
+
+# Runtime output and state
+/logs/
+/pids/
+/status/
+*.log
+*.pid
+*.status
+*.lock
+*.sock
+
+# macOS and editor-generated files
+.DS_Store
+*.swp
+*.swo
+*~
