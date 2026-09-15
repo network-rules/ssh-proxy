@@ -109,7 +109,7 @@ Controls:
   Enter/t                       Start or stop a tunnel
   r                             Restart the selected tunnel
   l                             View logs
-  c                             Open an interactive connection
+  c                             Open an interactive connection; press Enter after connecting to return
   p                             Save a profile password
   g                             Save the default password
   d                             Delete a profile password
@@ -549,6 +549,7 @@ run_tunnel() {
   local name=$1
   local pid_path log_path child_pid rc stopping=0
   local delay retry_count=0 reconnect_enabled max_retries max_retry_delay
+  local interactive_mode=${SSH_PROXY_INTERACTIVE:-0} interactive_key
   find_profile "$name" || die "profile not found: $name"
   valid_name "$name" || die "profile name may contain only letters, numbers, dots, underscores, and hyphens"
   reconnect_enabled=$(printf '%s' "$PROFILE_RECONNECT" | tr '[:upper:]' '[:lower:]')
@@ -629,6 +630,28 @@ run_tunnel() {
       sleep 0.2
       connect_wait=$((connect_wait + 1))
     done
+
+    if [[ "$interactive_mode" = 1 && "$(profile_status "$name")" = CONNECTED ]]; then
+      printf '\nConnection established. The tunnel is active.\n'
+      printf 'Press Enter or r to return to the main console and keep it running.\n'
+      printf 'Press Ctrl-C to stop the tunnel and return.\n\n'
+      while kill -0 "$child_pid" 2>/dev/null; do
+        interactive_key=
+        if IFS= read -rsn1 -t 1 interactive_key; then
+          case "$interactive_key" in
+            ''|$'\n'|$'\r'|r|R)
+              printf 'Returning to the main console; tunnel remains active.\n'
+              printf '%s\n' "$child_pid" > "$pid_path"
+              trap - INT TERM EXIT
+              INTERACTIVE_DETACHED=1
+              child_pid=
+              return 0
+              ;;
+          esac
+        fi
+      done
+    fi
+
     wait "$child_pid"
     rc=$?
     child_pid=
@@ -925,10 +948,19 @@ ui_run() {
         stty "$saved_stty"
         printf '\033[?25h'
         ui_clear
-        printf 'Interactive foreground connection: %s\nPress Ctrl-C to return to the console.\n\n' "$profile"
-        run_tunnel "$profile" || true
+        if ui_is_running "$profile"; then
+          printf '%s is already %s.\n\n' "$profile" "$(profile_status "$profile")"
+          printf 'Stop the current tunnel with Enter/t before opening an interactive connection.\n'
+          ui_pause
+        else
+          printf 'Interactive connection: %s\nEnter a password or MFA response when prompted.\n\n' "$profile"
+          INTERACTIVE_DETACHED=0
+          SSH_PROXY_INTERACTIVE=1
+          run_tunnel "$profile" || true
+          unset SSH_PROXY_INTERACTIVE
+          [[ "${INTERACTIVE_DETACHED:-0}" = 1 ]] || ui_pause
+        fi
         ui_install_trap
-        ui_pause
         stty -echo -icanon min 1 time 0
         printf '\033[?25l'
         ;;

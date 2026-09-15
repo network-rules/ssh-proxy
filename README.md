@@ -80,7 +80,7 @@ Only one profile can run at a time when profiles share local port `7070`.
 | Enter, `t` | Start or stop a tunnel |
 | `r` | Restart the selected tunnel |
 | `l` | View logs |
-| `c` | Open an interactive SSH connection |
+| `c` | Open an interactive SSH connection; press Enter after success to return |
 | `p` | Save a profile password |
 | `g` | Save the default password |
 | `d` | Delete a profile password |
