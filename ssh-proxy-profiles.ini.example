@@ -4,7 +4,6 @@
 
 [settings]
 # Global defaults. Each server may override these values.
-language = en
 reconnect = yes
 max_retries = 0
 retry_delay = 5

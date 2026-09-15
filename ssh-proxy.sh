@@ -11,8 +11,6 @@ APP_VERSION=1.3.0
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 CONFIG_FILE=${SSH_PROXY_CONFIG:-"$SCRIPT_DIR/ssh-proxy-profiles.ini"}
-LOCALE_DIR="$SCRIPT_DIR/locales"
-LANGUAGE=${SSH_PROXY_LANG:-en}
 STATE_DIR=${SSH_PROXY_STATE_DIR:-"$SCRIPT_DIR"}
 PID_DIR="$STATE_DIR/pids"
 LOG_DIR=${SSH_PROXY_LOG_DIR:-"$SCRIPT_DIR/logs"}
@@ -22,24 +20,16 @@ RETRY_DELAY=${SSH_PROXY_RETRY_DELAY:-5}
 MAX_RETRY_DELAY=${SSH_PROXY_MAX_RETRY_DELAY:-60}
 MAC_NOTIFICATION=${SSH_PROXY_MAC_NOTIFICATION:-1}
 
-if [[ -r "$LOCALE_DIR/en.sh" ]]; then
-  . "$LOCALE_DIR/en.sh"
-fi
-
-msg() {
-  locale_msg "$@"
-}
-
 parse_global_options() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --config)
-        [[ $# -ge 2 ]] || die "$(msg config_required --config)"
+        [[ $# -ge 2 ]] || die "--config requires a path"
         CONFIG_FILE=$2
         shift 2
         ;;
       --state-dir)
-        [[ $# -ge 2 ]] || die "$(msg config_required --state-dir)"
+        [[ $# -ge 2 ]] || die "--state-dir requires a path"
         STATE_DIR=$2
         PID_DIR="$STATE_DIR/pids"
         LOG_DIR="$STATE_DIR/logs"
@@ -64,7 +54,7 @@ parse_global_options() {
         break
         ;;
       -*)
-        die "$(msg unknown_option "$1")"
+        die "unknown option: $1"
         ;;
       *)
         break
@@ -146,20 +136,7 @@ valid_port() {
 }
 
 require_command() {
-  command -v "$1" >/dev/null 2>&1 || die "$(msg missing_command "$1")"
-}
-
-usage() {
-  locale_usage
-}
-
-die() {
-  printf '%s: %s\n' "$(msg error_prefix)" "$*" >&2
-  exit 1
-}
-
-require_command() {
-  command -v "$1" >/dev/null 2>&1 || die "$(msg missing_command "$1")"
+  command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
 }
 
 pid_file() { printf '%s/%s.pid' "$PID_DIR" "$1"; }
@@ -221,70 +198,68 @@ askpass_password() {
 
 save_password() {
   local name=$1 password confirm encoded file
-  find_profile "$name" || die "$(msg profile_not_found "$name")"
-  [[ -t 0 ]] || die "$(msg password_terminal save-password)"
-  msg enter_password "$name"
-  IFS= read -r -s password || { printf '\n'; die "$(msg input_cancelled)"; }
+  find_profile "$name" || die "profile not found: $name"
+  [[ -t 0 ]] || die 'save-password must be run from an interactive terminal'
+  printf 'Enter password for %s: ' "$name"
+  IFS= read -r -s password || { printf '\n'; die 'password input cancelled'; }
+  printf '\nConfirm password: '
+  IFS= read -r -s confirm || { printf '\n'; die 'password input cancelled'; }
   printf '\n'
-  msg confirm_password
-  IFS= read -r -s confirm || { printf '\n'; die "$(msg input_cancelled)"; }
-  printf '\n'
-  [[ "$password" = "$confirm" ]] || die "$(msg passwords_mismatch)"
-  [[ -n "$password" ]] || die "$(msg password_empty)"
-  encoded=$(triple_b64_encode "$password") || die "$(msg encode_failed)"
+  [[ "$password" = "$confirm" ]] || die 'passwords do not match'
+  [[ -n "$password" ]] || die 'password cannot be empty'
+  encoded=$(triple_b64_encode "$password") || die 'failed to encode password'
   file=$(credential_file "$name")
-  printf '%s\n' "$encoded" > "$file" || die "$(msg write_credential "$file")"
+  printf '%s\n' "$encoded" > "$file" || die "cannot write credential file: $file"
   chmod 600 "$file" 2>/dev/null || true
   unset password confirm encoded
-  msg password_saved "$name"
+  printf 'Password saved for %s (triple Base64; not encryption).\n' "$name"
 }
 
 clear_password() {
   local name=$1 file
-  find_profile "$name" || die "$(msg profile_not_found "$name")"
+  find_profile "$name" || die "profile not found: $name"
   file=$(credential_file "$name")
   if [[ -e "$file" ]]; then
-    rm -f "$file" || die "$(msg delete_credential "$file")"
-    msg credential_deleted "$name"
+    rm -f "$file" || die "cannot delete credential file: $file"
+    printf 'Saved password deleted for %s.\n' "$name"
   else
-    msg no_password "$name"
+    printf 'No saved password for %s.\n' "$name"
   fi
 }
 
 save_default_password() {
   local password confirm encoded file
-  [[ -t 0 ]] || die "$(msg password_terminal save-default-password)"
-  msg enter_default
-  IFS= read -r -s password || { printf '\n'; die "$(msg input_cancelled)"; }
+  [[ -t 0 ]] || die 'save-default-password must be run from an interactive terminal'
+  printf 'Enter default password: '
+  IFS= read -r -s password || { printf '\n'; die 'password input cancelled'; }
+  printf '\nConfirm default password: '
+  IFS= read -r -s confirm || { printf '\n'; die 'password input cancelled'; }
   printf '\n'
-  msg confirm_default
-  IFS= read -r -s confirm || { printf '\n'; die "$(msg input_cancelled)"; }
-  printf '\n'
-  [[ "$password" = "$confirm" ]] || die "$(msg passwords_mismatch)"
-  [[ -n "$password" ]] || die "$(msg password_empty)"
-  encoded=$(triple_b64_encode "$password") || die "$(msg encode_failed)"
+  [[ "$password" = "$confirm" ]] || die 'passwords do not match'
+  [[ -n "$password" ]] || die 'password cannot be empty'
+  encoded=$(triple_b64_encode "$password") || die 'failed to encode password'
   file=$(default_credential_file)
-  printf '%s\n' "$encoded" > "$file" || die "$(msg write_credential "$file")"
+  printf '%s\n' "$encoded" > "$file" || die "cannot write credential file: $file"
   chmod 600 "$file" 2>/dev/null || true
   unset password confirm encoded
-  msg default_saved
+  printf 'Default password saved (triple Base64; not encryption).\n'
 }
 
 clear_default_password() {
   local file
   file=$(default_credential_file)
   if [[ -e "$file" ]]; then
-    rm -f "$file" || die "$(msg delete_credential "$file")"
-    msg default_deleted
+    rm -f "$file" || die "cannot delete credential file: $file"
+    printf 'Default password deleted.\n'
   else
-    msg no_default
+    printf 'No default password saved.\n'
   fi
 }
 
 password_status() {
   local name
   if [[ $# -eq 1 ]]; then
-    find_profile "$1" || die "$(msg profile_not_found "$1")"
+    find_profile "$1" || die "profile not found: $1"
     if has_saved_password "$1"; then
       printf '%s: PROFILE_PASSWORD\n' "$1"
     elif has_default_password; then
@@ -321,18 +296,6 @@ profile_status() {
   else
     printf 'RUNNING'
   fi
-}
-
-localized_status() {
-  case "$1" in
-    STOPPED) msg status_stopped ;;
-    RUNNING) msg status_running ;;
-    STARTING) msg status_starting ;;
-    CONNECTED) msg status_connected ;;
-    RECONNECTING) msg status_reconnecting ;;
-    STOPPING) msg status_stopping ;;
-    *) printf '%s' "$1" ;;
-  esac
 }
 
 notify() {
@@ -375,38 +338,6 @@ strip_quotes() {
     value=${value:1:${#value}-2}
   fi
   printf '%s' "$value"
-}
-
-configured_language() {
-  local line section= key value
-  [[ -r "$CONFIG_FILE" ]] || return 0
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    line=$(trim_whitespace "$line")
-    [[ -z "$line" || "$line" = \#* || "$line" = \;* ]] && continue
-    if [[ "$line" =~ ^\[([A-Za-z0-9_.-]+)\]$ ]]; then
-      section=${BASH_REMATCH[1]}
-      continue
-    fi
-    [[ "$section" = settings || "$section" = defaults ]] || continue
-    [[ "$line" =~ ^language[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
-    value=$(strip_quotes "$(trim_whitespace "${BASH_REMATCH[1]}")")
-    printf '%s' "$value"
-    return 0
-  done < "$CONFIG_FILE"
-}
-
-load_locale() {
-  local requested=${SSH_PROXY_LANG:-}
-  [[ -n "$requested" ]] || requested=$(configured_language)
-  [[ -n "$requested" ]] || requested=en
-  requested=$(printf '%s' "$requested" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
-
-  . "$LOCALE_DIR/en.sh" || die "$(msg locale_error English)"
-  case "$requested" in
-    zh|zh-cn) LANGUAGE=zh-CN; . "$LOCALE_DIR/zh_CN.sh" || die "$(msg locale_error Chinese)" ;;
-    en|en-us) LANGUAGE=en ;;
-    *) LANGUAGE=en ;;
-  esac
 }
 
 config_format() {
@@ -473,7 +404,7 @@ load_ini_profile() {
 
 profile_names() {
   local line section= name host user ssh_port local_port identity extra
-  [[ -r "$CONFIG_FILE" ]] || die "$(msg profile_file_not_found "$CONFIG_FILE")"
+  [[ -r "$CONFIG_FILE" ]] || die "profile file not found: $CONFIG_FILE"
   if [[ "$(config_format)" = ini ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
       line=$(trim_whitespace "$line")
@@ -487,7 +418,7 @@ profile_names() {
     done < "$CONFIG_FILE"
   else
     while IFS=' ' read -r name host user ssh_port local_port identity extra; do
-    [[ -z "${name:-}" || "$name" = \#* || -n "${extra:-}" ]] && continue
+      [[ -z "${name:-}" || "$name" = \#* || -n "${extra:-}" ]] && continue
       printf '%s\n' "$name"
     done < "$CONFIG_FILE"
   fi
@@ -496,7 +427,7 @@ profile_names() {
 find_profile() {
   local wanted=$1
   local name host user ssh_port local_port identity extra
-  [[ -r "$CONFIG_FILE" ]] || die "$(msg profile_file_not_found "$CONFIG_FILE")"
+  [[ -r "$CONFIG_FILE" ]] || die "profile file not found: $CONFIG_FILE"
 
   if [[ "$(config_format)" = ini ]]; then
     load_ini_profile "$wanted"
@@ -507,7 +438,7 @@ find_profile() {
     [[ -z "${name:-}" || "$name" = \#* ]] && continue
     [[ -n "${extra:-}" ]] && continue
     if [[ "$name" = "$wanted" ]]; then
-      [[ -n "${host:-}" && -n "${user:-}" && -n "${ssh_port:-}" && -n "${local_port:-}" ]] || die "$(msg incomplete_profile "$name")"
+      [[ -n "${host:-}" && -n "${user:-}" && -n "${ssh_port:-}" && -n "${local_port:-}" ]] || die "incomplete profile: $name"
       PROFILE_NAME=$name
       PROFILE_HOST=$host
       PROFILE_USER=$user
@@ -526,7 +457,7 @@ find_profile() {
 
 list_profiles() {
   local name
-  [[ -r "$CONFIG_FILE" ]] || die "$(msg profile_file_not_found "$CONFIG_FILE")"
+  [[ -r "$CONFIG_FILE" ]] || die "profile file not found: $CONFIG_FILE"
   printf '%-16s %-34s %-16s %s\n' NAME SERVER USER SOCKS_PORT
   while IFS= read -r name; do
     [[ -n "$name" ]] || continue
@@ -543,34 +474,34 @@ check_config() {
   require_command base64
   require_command tr
   require_command stty
-  [[ -r "$CONFIG_FILE" ]] || die "$(msg profile_file_not_found "$CONFIG_FILE")"
+  [[ -r "$CONFIG_FILE" ]] || die "profile file not found: $CONFIG_FILE"
 
   while IFS= read -r name; do
     [[ -n "$name" ]] || continue
     line_no=$((line_no + 1))
     found=1
-    valid_name "$name" || die "$(msg invalid_name "$line_no" "$name")"
-    find_profile "$name" || die "$(msg incomplete_profile "$name")"
-    [[ -n "$PROFILE_HOST" && -n "$PROFILE_USER" && -n "$PROFILE_SSH_PORT" && -n "$PROFILE_LOCAL_PORT" ]] || die "$(msg incomplete_profile "$name")"
-    valid_port "$PROFILE_SSH_PORT" || die "$(msg invalid_port SSH "$name" "$PROFILE_SSH_PORT")"
-    valid_port "$PROFILE_LOCAL_PORT" || die "$(msg invalid_port local "$name" "$PROFILE_LOCAL_PORT")"
+    valid_name "$name" || die "invalid profile name on line $line_no: $name"
+    find_profile "$name" || die "unable to read profile: $name"
+    [[ -n "$PROFILE_HOST" && -n "$PROFILE_USER" && -n "$PROFILE_SSH_PORT" && -n "$PROFILE_LOCAL_PORT" ]] || die "incomplete profile: $name"
+    valid_port "$PROFILE_SSH_PORT" || die "invalid SSH port in profile $name: $PROFILE_SSH_PORT"
+    valid_port "$PROFILE_LOCAL_PORT" || die "invalid local port in profile $name: $PROFILE_LOCAL_PORT"
     if [[ "$PROFILE_IDENTITY" != '-' ]]; then
-      [[ -r "$PROFILE_IDENTITY" ]] || die "$(msg identity_unreadable "$name" "$PROFILE_IDENTITY")"
+      [[ -r "$PROFILE_IDENTITY" ]] || die "identity file is not readable in profile $name: $PROFILE_IDENTITY"
     fi
     reconnect_value=$(printf '%s' "$PROFILE_RECONNECT" | tr '[:upper:]' '[:lower:]')
-    [[ "$reconnect_value" = yes || "$reconnect_value" = no || "$reconnect_value" = true || "$reconnect_value" = false ]] || die "$(msg invalid_reconnect "$name")"
-    [[ "$PROFILE_MAX_RETRIES" =~ ^[0-9]+$ ]] || die "$(msg invalid_max_retries "$name")"
-    [[ "$PROFILE_RETRY_DELAY" =~ ^[1-9][0-9]*$ ]] || die "$(msg invalid_retry_delay retry_delay "$name")"
-    [[ "$PROFILE_MAX_RETRY_DELAY" =~ ^[1-9][0-9]*$ ]] || die "$(msg invalid_retry_delay max_retry_delay "$name")"
-    (( PROFILE_MAX_RETRY_DELAY >= PROFILE_RETRY_DELAY )) || die "$(msg retry_order "$name")"
+    [[ "$reconnect_value" = yes || "$reconnect_value" = no || "$reconnect_value" = true || "$reconnect_value" = false ]] || die "reconnect must be yes or no in profile $name"
+    [[ "$PROFILE_MAX_RETRIES" =~ ^[0-9]+$ ]] || die "max_retries must be a non-negative integer in profile $name"
+    [[ "$PROFILE_RETRY_DELAY" =~ ^[1-9][0-9]*$ ]] || die "retry_delay must be a positive integer in profile $name"
+    [[ "$PROFILE_MAX_RETRY_DELAY" =~ ^[1-9][0-9]*$ ]] || die "max_retry_delay must be a positive integer in profile $name"
+    (( PROFILE_MAX_RETRY_DELAY >= PROFILE_RETRY_DELAY )) || die "max_retry_delay must be >= retry_delay in profile $name"
 
     local old
     for old in "${names[@]:-}"; do
-      [[ "$old" != "$name" ]] || die "$(msg duplicate_profile "$name")"
+      [[ "$old" != "$name" ]] || die "duplicate profile name: $name"
     done
     for old in "${ports[@]:-}"; do
       if [[ "$old" = "$PROFILE_LOCAL_PORT" && ":$warned_ports:" != *":$PROFILE_LOCAL_PORT:"* ]]; then
-        msg shared_port_warning "$PROFILE_LOCAL_PORT" >&2
+        printf 'Warning: local port %s is shared by multiple profiles; run only one at a time.\n' "$PROFILE_LOCAL_PORT" >&2
         warned_ports="$warned_ports$PROFILE_LOCAL_PORT:"
         break
       fi
@@ -579,14 +510,13 @@ check_config() {
     ports+=("$PROFILE_LOCAL_PORT")
   done < <(profile_names)
 
-  [[ "$found" = 1 ]] || die "$(msg no_profiles)"
-  msg config_valid "$CONFIG_FILE" "${#names[@]}"
-  printf '\n'
-  msg dependencies "$(command -v lsof >/dev/null 2>&1 && printf ', lsof' || true)"
+  [[ "$found" = 1 ]] || die "profile file has no valid entries"
+  printf 'Configuration valid: %s (%s profiles)\n' "$CONFIG_FILE" "${#names[@]}"
+  printf 'Dependencies available: ssh, base64, tr, stty%s\n' "$(command -v lsof >/dev/null 2>&1 && printf ', lsof' || true)"
 }
 
 show_config() {
-  printf '%s: %s\n' "$(msg profile_file_label)" "$CONFIG_FILE"
+  printf 'Profile file: %s\n' "$CONFIG_FILE"
   printf 'State directory: %s\n' "$STATE_DIR"
   printf 'PID directory: %s\n' "$PID_DIR"
   printf 'Log directory: %s\n' "$LOG_DIR"
@@ -620,8 +550,8 @@ run_tunnel() {
   local pid_path log_path child_pid rc stopping=0
   local delay retry_count=0 reconnect_enabled max_retries max_retry_delay
   local interactive_mode=${SSH_PROXY_INTERACTIVE:-0} interactive_key
-  find_profile "$name" || die "$(msg profile_not_found "$name")"
-  valid_name "$name" || die "$(msg invalid_profile_name "$name")"
+  find_profile "$name" || die "profile not found: $name"
+  valid_name "$name" || die "profile name may contain only letters, numbers, dots, underscores, and hyphens"
   reconnect_enabled=$(printf '%s' "$PROFILE_RECONNECT" | tr '[:upper:]' '[:lower:]')
   delay=$PROFILE_RETRY_DELAY
   max_retries=$PROFILE_MAX_RETRIES
@@ -634,21 +564,22 @@ run_tunnel() {
     local old_pid
     old_pid=$(<"$pid_path")
     if [[ "$old_pid" =~ ^[0-9]+$ ]] && kill -0 "$old_pid" 2>/dev/null; then
-      die "$(msg already_running "$name" "$old_pid")"
+      die "$name is already running (PID $old_pid)"
     fi
     rm -f "$pid_path"
   fi
 
   if port_is_busy "$PROFILE_LOCAL_PORT"; then
     port_owner "$PROFILE_LOCAL_PORT" >&2
-    die "$(msg port_busy "$PROFILE_LOCAL_PORT")"
+    die "local port $PROFILE_LOCAL_PORT is already in use; choose another port or stop the process using it"
   fi
 
   printf '%s\n' "$$" > "$pid_path"
   set_profile_status "$name" STARTING
   trap 'stopping=1; set_profile_status "$name" STOPPING; cleanup "$pid_path" "${child_pid:-}"; set_profile_status "$name" STOPPED' INT TERM EXIT
 
-  msg starting "$(date '+%Y-%m-%d %H:%M:%S')" "$name" "$PROFILE_LOCAL_PORT" | tee -a "$log_path"
+  printf '[%s] Starting %s -> socks5h://127.0.0.1:%s\n' \
+    "$(date '+%Y-%m-%d %H:%M:%S')" "$name" "$PROFILE_LOCAL_PORT" | tee -a "$log_path"
 
   while [[ "$stopping" = 0 ]]; do
     local -a ssh_args
@@ -666,8 +597,9 @@ run_tunnel() {
       ssh_args+=( -i "$PROFILE_IDENTITY" )
     fi
 
-    msg connecting "$(date '+%Y-%m-%d %H:%M:%S')" "$PROFILE_USER" "$PROFILE_HOST" "$PROFILE_SSH_PORT" | tee -a "$log_path"
-    msg prompt_password >&2
+    printf '[%s] Connecting to %s@%s:%s\n' \
+      "$(date '+%Y-%m-%d %H:%M:%S')" "$PROFILE_USER" "$PROFILE_HOST" "$PROFILE_SSH_PORT" | tee -a "$log_path"
+    printf 'Enter a password or MFA code in this terminal if prompted.\n' >&2
 
     # Do not use ssh -f: keeping ssh as a child lets us detect disconnects.
     if has_effective_password "$name"; then
@@ -689,7 +621,8 @@ run_tunnel() {
       if ! kill -0 "$child_pid" 2>/dev/null; then break; fi
       if [[ -n "$(port_owner "$PROFILE_LOCAL_PORT")" ]]; then
         set_profile_status "$name" CONNECTED
-        msg connected "$(date '+%Y-%m-%d %H:%M:%S')" "$PROFILE_LOCAL_PORT" | tee -a "$log_path"
+        printf '[%s] Connected; SOCKS proxy ready at socks5h://127.0.0.1:%s\n' \
+          "$(date '+%Y-%m-%d %H:%M:%S')" "$PROFILE_LOCAL_PORT" | tee -a "$log_path"
         retry_count=0
         delay=$PROFILE_RETRY_DELAY
         break
@@ -699,15 +632,15 @@ run_tunnel() {
     done
 
     if [[ "$interactive_mode" = 1 && "$(profile_status "$name")" = CONNECTED ]]; then
-      printf '\n%s\n' "$(msg connection_established)"
-      printf '%s\n' "$(msg return_keep_running)"
-      printf '%s\n\n' "$(msg return_stop)"
+      printf '\nConnection established. The tunnel is active.\n'
+      printf 'Press Enter or r to return to the main console and keep it running.\n'
+      printf 'Press Ctrl-C to stop the tunnel and return.\n\n'
       while kill -0 "$child_pid" 2>/dev/null; do
         interactive_key=
         if IFS= read -rsn1 -t 1 interactive_key; then
           case "$interactive_key" in
             ''|$'\n'|$'\r'|r|R)
-              msg returning
+              printf 'Returning to the main console; tunnel remains active.\n'
               printf '%s\n' "$child_pid" > "$pid_path"
               trap - INT TERM EXIT
               INTERACTIVE_DETACHED=1
@@ -726,37 +659,40 @@ run_tunnel() {
     [[ "$stopping" = 1 ]] && break
     if [[ "$reconnect_enabled" != yes && "$reconnect_enabled" != true ]]; then
       set_profile_status "$name" STOPPED
-      msg auto_disabled "$(date '+%Y-%m-%d %H:%M:%S')" "$rc" | tee -a "$log_path"
+      printf '[%s] Disconnected, exit code %s; automatic reconnect is disabled\n' \
+        "$(date '+%Y-%m-%d %H:%M:%S')" "$rc" | tee -a "$log_path"
       break
     fi
     retry_count=$((retry_count + 1))
     if (( max_retries > 0 && retry_count > max_retries )); then
       set_profile_status "$name" STOPPED
-      notify "$(msg notify_retry_limit)" "$name (maximum retries: $max_retries)"
-      msg retry_limit "$(date '+%Y-%m-%d %H:%M:%S')" "$rc" "$max_retries" | tee -a "$log_path"
+      notify "SSH SOCKS reconnect limit reached" "$name (maximum retries: $max_retries)"
+      printf '[%s] Disconnected, exit code %s; reconnect limit reached (%s attempts)\n' \
+        "$(date '+%Y-%m-%d %H:%M:%S')" "$rc" "$max_retries" | tee -a "$log_path"
       break
     fi
     set_profile_status "$name" RECONNECTING
-    notify "$(msg notify_disconnected)" "$name (exit code $rc); reconnecting in ${delay}s"
-    msg disconnected "$(date '+%Y-%m-%d %H:%M:%S')" "$rc" "$delay" >> "$log_path"
+    notify "SSH SOCKS disconnected" "$name (exit code $rc); reconnecting in ${delay}s"
+    printf '[%s] Disconnected, exit code %s; reconnecting in %ss\n' \
+      "$(date '+%Y-%m-%d %H:%M:%S')" "$rc" "$delay" >> "$log_path"
     sleep "$delay"
     (( delay < max_retry_delay )) && delay=$((delay * 2))
     (( delay > max_retry_delay )) && delay=$max_retry_delay
   done
 
-  msg stopped "$(date '+%Y-%m-%d %H:%M:%S')" "$name" | tee -a "$log_path"
+  printf '[%s] Stopped %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$name" | tee -a "$log_path"
 }
 
 start_tunnel() {
   local name=$1
-  find_profile "$name" || die "$(msg profile_not_found "$name")"
-  valid_name "$name" || die "$(msg invalid_profile_name "$name")"
+  find_profile "$name" || die "profile not found: $name"
+  valid_name "$name" || die "profile name may contain only letters, numbers, dots, underscores, and hyphens"
   SSH_PROXY_CONFIG="$CONFIG_FILE" \
   SSH_PROXY_STATE_DIR="$STATE_DIR" \
   SSH_PROXY_LOG_DIR="$LOG_DIR" \
   SSH_PROXY_INTERNAL_RUN=1 \
   nohup "$0" "$name" >>"$(log_file "$name")" 2>&1 </dev/null &
-  msg background_start "$name" "$(log_file "$name")"
+  printf '%s background start requested; log: %s\n' "$name" "$(log_file "$name")"
 }
 
 restart_tunnel() {
@@ -768,19 +704,19 @@ restart_tunnel() {
 
 stop_tunnel() {
   local name=$1 pid_path pid
-  valid_name "$name" || die "$(msg invalid_profile_name "$name")"
+  valid_name "$name" || die "profile name may contain only letters, numbers, dots, underscores, and hyphens"
   pid_path=$(pid_file "$name")
   set_profile_status "$name" STOPPING
-  [[ -r "$pid_path" ]] || { set_profile_status "$name" STOPPED; msg not_running "$name"; return 0; }
+  [[ -r "$pid_path" ]] || { set_profile_status "$name" STOPPED; printf '%s is not running\n' "$name"; return 0; }
   pid=$(<"$pid_path")
-  [[ "$pid" =~ ^[0-9]+$ ]] || { rm -f "$pid_path"; set_profile_status "$name" STOPPED; msg not_running "$name"; return 0; }
+  [[ "$pid" =~ ^[0-9]+$ ]] || { rm -f "$pid_path"; set_profile_status "$name" STOPPED; printf '%s is not running\n' "$name"; return 0; }
   if kill -0 "$pid" 2>/dev/null; then
     kill TERM "$pid" 2>/dev/null || true
-    msg stop_signal "$name" "$pid"
+    printf 'Stop signal sent: %s (PID %s)\n' "$name" "$pid"
   else
     rm -f "$pid_path"
     set_profile_status "$name" STOPPED
-    msg not_running "$name"
+    printf '%s is not running\n' "$name"
   fi
 }
 
@@ -791,16 +727,16 @@ status_one() {
     pid=$(<"$pid_path")
     if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
       state=$(profile_status "$name")
-      printf '%-16s %-12s PID=%s\n' "$name" "$(localized_status "$state")" "$pid"
+      printf '%-16s %-12s PID=%s\n' "$name" "$state" "$pid"
       return 0
     fi
   fi
-  printf '%-16s %s\n' "$name" "$(localized_status STOPPED)"
+  printf '%-16s STOPPED\n' "$name"
 }
 
 status_all() {
   local name
-  [[ -r "$CONFIG_FILE" ]] || die "$(msg profile_file_not_found "$CONFIG_FILE")"
+  [[ -r "$CONFIG_FILE" ]] || die "profile file not found: $CONFIG_FILE"
   while IFS= read -r name; do
     [[ -n "$name" ]] || continue
     status_one "$name"
@@ -810,7 +746,7 @@ status_all() {
 logs() {
   local name=$1 file
   file=$(log_file "$name")
-  [[ -f "$file" ]] || die "$(msg no_log "$file")"
+  [[ -f "$file" ]] || die "no log file found: $file"
   tail -n 80 "$file"
 }
 
@@ -830,7 +766,7 @@ load_ui_profiles() {
     UI_SSH_PORTS+=("$PROFILE_SSH_PORT")
     UI_LOCAL_PORTS+=("$PROFILE_LOCAL_PORT")
   done < <(profile_names)
-  (( ${#UI_NAMES[@]} > 0 )) || die "$(msg no_profiles)"
+  (( ${#UI_NAMES[@]} > 0 )) || die "profile file has no valid entries"
 }
 
 ui_is_running() {
@@ -871,7 +807,7 @@ ui_clear() {
 
 ui_pause() {
   local key
-  printf '\n%s' "$(msg pause)" >&2
+  printf '\nPress any key to return...' >&2
   IFS= read -rsn1 key || true
 }
 
@@ -899,30 +835,30 @@ ui_draw() {
 +------------------------------------------------------------+
 EOF
   printf '\033[0m\n'
-  printf '%s\n' "$(msg ui_description_1)"
-  printf '%s\n\n' "$(msg ui_description_2)"
+  printf 'A lightweight Bash console for SSH dynamic SOCKS5 tunnels.\n'
+  printf 'Automatic reconnect, external profiles, and optional password storage.\n\n'
   printf 'Profile file: %s\n\n' "$CONFIG_FILE"
-  printf '  %-18s %-34s %-12s %-12s\n' "$(msg table_name)" "$(msg table_server)" "$(msg table_status)" "$(msg table_socks_port)"
+  printf '  %-18s %-34s %-12s %-12s\n' NAME SERVER STATUS SOCKS_PORT
   printf '  %-18s %-34s %-12s %-12s\n' '------------------' '----------------------------------' '------------' '------------'
   i=0
   while (( i < ${#UI_NAMES[@]} )); do
     marker=' '
     [[ "$i" = "$selected" ]] && marker='>'
-    state=$(localized_status "$(profile_status "${UI_NAMES[$i]}")")
+    state=$(profile_status "${UI_NAMES[$i]}")
     printf '%s %-18s %-34s %-12s %-12s\n' \
       "$marker" "${UI_NAMES[$i]}" "${UI_USERS[$i]}@${UI_HOSTS[$i]}:${UI_SSH_PORTS[$i]}" \
       "$state" "127.0.0.1:${UI_LOCAL_PORTS[$i]}"
     i=$((i + 1))
   done
-  printf '\n\033[2m%s\033[0m\n' "$(msg ui_controls_1)"
-  printf '\033[2m%s\033[0m\n' "$(msg ui_controls_2)"
+  printf '\n\033[2mUp/Down or j/k: select   Enter/t: start/stop   r: restart   l: logs   c: interactive connect\033[0m\n'
+  printf '\033[2m p: save profile password   g: save default password   d: delete profile password   x: delete default password   q: quit\033[0m\n'
 }
 
 ui_run() {
   local selected=0 key escape_key profile redraw=1 last_snapshot current_snapshot
   load_ui_profiles
   require_command stty
-  UI_SAVED_STTY=$(stty -g) || die "$(msg terminal_settings)"
+  UI_SAVED_STTY=$(stty -g) || die 'unable to read terminal settings'
   stty -echo -icanon min 1 time 0
   ui_install_trap
   printf '\033[?25l'
@@ -1022,11 +958,11 @@ ui_run() {
         printf '\033[?25h'
         ui_clear
         if ui_is_running "$profile"; then
-          printf '%s\n\n' "$(msg active_profile "$profile" "$(localized_status "$(profile_status "$profile")")")"
-          msg stop_before_interactive
+          printf '%s is already %s.\n\n' "$profile" "$(profile_status "$profile")"
+          printf 'Stop the current tunnel with Enter/t before opening an interactive connection.\n'
           ui_pause
         else
-          printf '%s\n%s\n\n' "$(msg interactive_start "$profile")" "$(msg interactive_prompt)"
+          printf 'Interactive connection: %s\nEnter a password or MFA response when prompted.\n\n' "$profile"
           INTERACTIVE_DETACHED=0
           SSH_PROXY_INTERACTIVE=1
           run_tunnel "$profile" || true
@@ -1051,8 +987,6 @@ ui_run() {
   done
 }
 
-load_locale
-
 if [[ "${SSH_PROXY_ASKPASS:-0}" = 1 ]]; then
   askpass_password
   exit $?
@@ -1067,24 +1001,23 @@ if [[ "${SSH_PROXY_INTERNAL_RUN:-0}" = 1 ]]; then
 fi
 
 parse_global_options "$@"
-load_locale
 if (( ${#REMAINING_ARGS[@]:-0} > 0 )); then
   set -- "${REMAINING_ARGS[@]}"
 else
   set --
 fi
-mkdir -p "$PID_DIR" "$LOG_DIR" "$STATUS_DIR" "$CREDENTIAL_DIR" || die "$(msg state_directory_error "$STATE_DIR")"
+mkdir -p "$PID_DIR" "$LOG_DIR" "$STATUS_DIR" "$CREDENTIAL_DIR" || die "unable to create state directory: $STATE_DIR"
 
 if [[ "${1:-}" = help ]]; then
-  [[ $# -eq 1 ]] || die "$(msg usage_help)"
+  [[ $# -eq 1 ]] || die 'usage: ssh-proxy.sh --help'
   usage
   exit 0
 fi
 if [[ "${1:-}" = version ]]; then
-  [[ $# -eq 1 ]] || die "$(msg usage_version)"
+  [[ $# -eq 1 ]] || die 'usage: ssh-proxy.sh --version'
   version
   exit 0
 fi
-[[ $# -eq 0 ]] || die "$(msg terminal_console_only)"
-[[ -t 0 && -t 1 ]] || die "$(msg interactive_required)"
+[[ $# -eq 0 ]] || die 'this application uses the terminal console; use --help for options'
+[[ -t 0 && -t 1 ]] || die 'an interactive terminal is required'
 ui_run

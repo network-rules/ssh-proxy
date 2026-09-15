@@ -1,11 +1,6 @@
 # SSH Proxy
 
-Pure Bash application for managing SSH dynamic SOCKS5 tunnels.
-
-Language:
-
-- English (default)
-- [简体中文](README.zh-CN.md)
+A pure Bash application for managing SSH dynamic SOCKS5 tunnels.
 
 ## Requirements
 
@@ -38,7 +33,6 @@ The default profile file is `ssh-proxy-profiles.ini`.
 
 ```ini
 [settings]
-language = en
 reconnect = yes
 max_retries = 0
 retry_delay = 5
@@ -77,10 +71,6 @@ and can be overridden in an individual server section.
 | `max_retry_delay` | Maximum reconnect delay in seconds |
 
 Only one profile can run at a time when profiles share local port `7070`.
-
-Set `language = en` or `language = zh-CN` in `[settings]`. The environment
-variable `SSH_PROXY_LANG` can temporarily override the configured language.
-Status values in the console are localized as well.
 
 ## Console controls
 
