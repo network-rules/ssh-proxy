@@ -875,8 +875,17 @@ ui_pause() {
   IFS= read -rsn1 key || true
 }
 
+UI_SAVED_STTY=
+
+ui_restore_terminal() {
+  if [[ -n "${UI_SAVED_STTY:-}" ]]; then
+    stty "$UI_SAVED_STTY" 2>/dev/null || true
+  fi
+  printf '\033[?25h\033[0m\n'
+}
+
 ui_install_trap() {
-  trap 'if [[ -n "${saved_stty:-}" ]]; then stty "$saved_stty" 2>/dev/null || true; fi; printf "\\033[?25h\\033[0m\\n"' INT TERM EXIT
+  trap ui_restore_terminal INT TERM EXIT
 }
 
 ui_draw() {
@@ -910,10 +919,10 @@ EOF
 }
 
 ui_run() {
-  local selected=0 key escape_key saved_stty profile redraw=1 last_snapshot current_snapshot
+  local selected=0 key escape_key profile redraw=1 last_snapshot current_snapshot
   load_ui_profiles
   require_command stty
-  saved_stty=$(stty -g) || die "$(msg terminal_settings)"
+  UI_SAVED_STTY=$(stty -g) || die "$(msg terminal_settings)"
   stty -echo -icanon min 1 time 0
   ui_install_trap
   printf '\033[?25l'
@@ -961,7 +970,7 @@ ui_run() {
         ;;
       l|L)
         profile=${UI_NAMES[$selected]}
-        stty "$saved_stty"
+        stty "$UI_SAVED_STTY"
         printf '\033[?25h'
         ui_clear
         logs "$profile" || true
@@ -971,7 +980,7 @@ ui_run() {
         ;;
       p|P)
         profile=${UI_NAMES[$selected]}
-        stty "$saved_stty"
+        stty "$UI_SAVED_STTY"
         printf '\033[?25h'
         ui_clear
         save_password "$profile" || true
@@ -981,7 +990,7 @@ ui_run() {
         ;;
       d|D)
         profile=${UI_NAMES[$selected]}
-        stty "$saved_stty"
+        stty "$UI_SAVED_STTY"
         printf '\033[?25h'
         ui_clear
         clear_password "$profile" || true
@@ -990,7 +999,7 @@ ui_run() {
         printf '\033[?25l'
         ;;
       g|G)
-        stty "$saved_stty"
+        stty "$UI_SAVED_STTY"
         printf '\033[?25h'
         ui_clear
         save_default_password || true
@@ -999,7 +1008,7 @@ ui_run() {
         printf '\033[?25l'
         ;;
       x|X)
-        stty "$saved_stty"
+        stty "$UI_SAVED_STTY"
         printf '\033[?25h'
         ui_clear
         clear_default_password || true
@@ -1009,7 +1018,7 @@ ui_run() {
         ;;
       c|C)
         profile=${UI_NAMES[$selected]}
-        stty "$saved_stty"
+        stty "$UI_SAVED_STTY"
         printf '\033[?25h'
         ui_clear
         if ui_is_running "$profile"; then
@@ -1029,7 +1038,7 @@ ui_run() {
         printf '\033[?25l'
         ;;
       h|H|\?)
-        stty "$saved_stty"
+        stty "$UI_SAVED_STTY"
         printf '\033[?25h'
         ui_clear
         usage
