@@ -26,13 +26,16 @@ Profile file: /path/to/ssh-proxy-profiles.ini
 > gateway            user@gateway.example.com:22       CONNECTED    127.0.0.1:7070
   backup             user@backup.example.com:22         STOPPED      127.0.0.1:7070
 
-Up/Down or j/k: select   Enter/t: start/stop   r: restart   l: logs   c: interactive connect
+Up/Down or j/k: select   Enter/t: start/stop   r: restart   l: logs   c: interactive connect   f: reload config
  p: save profile password   g: save default password   d: delete profile password   x: delete default password   q: quit
 ```
 
 `CONNECTED`, `STARTING`, `RECONNECTING`, and `STOPPED` are live states read
 from the local runtime status files. The main screen refreshes when a state
-change is detected.
+change is detected. The profile list and settings are also reloaded when the
+INI file changes; the file is checked once per minute. Press `f` to reload the
+configuration immediately. Updates to an active tunnel take effect after
+restarting it.
 
 ## Highlights
 
@@ -63,7 +66,7 @@ encryption. For stronger authentication, use a private key or `ssh-agent`.
 
 - macOS or Linux
 - Bash and OpenSSH client (`ssh`)
-- `base64`, `tr`, and `stty`
+- `base64`, `tr`, `stty`, and `cksum`
 - `lsof` is optional and used for local port checks
 
 ## Usage
@@ -174,9 +177,12 @@ user, but SSH keys or an SSH agent are preferable whenever available.
 
 The `c` action opens an interactive SSH connection for the selected profile so
 that password, MFA, keyboard-interactive, or other terminal prompts can be
-answered directly. Once the SOCKS tunnel is connected, press Enter or `r` to
-return to the main console while keeping the tunnel running. Press Ctrl-C in
-interactive mode to stop the tunnel and return.
+answered directly. Interactive mode uses SSH's `ask` host-key policy, so the
+first connection can be confirmed by the user. Normal background starts use
+`accept-new`: a new host key is saved automatically, while a changed known-host
+key is still rejected. Once the SOCKS tunnel is connected, press Enter or `r`
+to return to the main console while keeping the tunnel running. Press Ctrl-C
+in interactive mode to stop the tunnel and return.
 
 ## Console controls
 
@@ -187,6 +193,7 @@ interactive mode to stop the tunnel and return.
 | `r` | Restart the selected tunnel |
 | `l` | View logs |
 | `c` | Open an interactive SSH connection; press Enter after success to return |
+| `f` | Reload the INI configuration immediately |
 | `p` | Save a profile password |
 | `g` | Save the default password |
 | `d` | Delete a profile password |

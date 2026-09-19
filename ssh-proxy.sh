@@ -593,6 +593,13 @@ run_tunnel() {
       -o ConnectTimeout=15
       -o TCPKeepAlive=yes
     )
+    if [[ "$interactive_mode" = 1 ]]; then
+      ssh_args+=( -o StrictHostKeyChecking=ask )
+    else
+      # Background connections cannot answer SSH's host-key prompt. Accept a
+      # new host key automatically, but still reject changed known-host keys.
+      ssh_args+=( -o StrictHostKeyChecking=accept-new )
+    fi
     if [[ "$PROFILE_IDENTITY" != '-' ]]; then
       ssh_args+=( -i "$PROFILE_IDENTITY" )
     fi
@@ -766,7 +773,48 @@ load_ui_profiles() {
     UI_SSH_PORTS+=("$PROFILE_SSH_PORT")
     UI_LOCAL_PORTS+=("$PROFILE_LOCAL_PORT")
   done < <(profile_names)
-  (( ${#UI_NAMES[@]} > 0 )) || die "profile file has no valid entries"
+  if (( ${#UI_NAMES[@]} == 0 )); then
+    [[ "${1:-}" = allow-empty ]] && return 1
+    die "profile file has no valid entries"
+  fi
+}
+
+ui_config_snapshot() {
+  cksum "$CONFIG_FILE" 2>/dev/null || printf 'missing'
+}
+
+ui_reload_profiles() {
+  local current_profile=$1 i=0
+  local -a old_names=("${UI_NAMES[@]}")
+  local -a old_hosts=("${UI_HOSTS[@]}")
+  local -a old_users=("${UI_USERS[@]}")
+  local -a old_ssh_ports=("${UI_SSH_PORTS[@]}")
+  local -a old_local_ports=("${UI_LOCAL_PORTS[@]}")
+  [[ -r "$CONFIG_FILE" ]] || return 1
+  if ! load_ui_profiles allow-empty; then
+    UI_NAMES=("${old_names[@]}")
+    UI_HOSTS=("${old_hosts[@]}")
+    UI_USERS=("${old_users[@]}")
+    UI_SSH_PORTS=("${old_ssh_ports[@]}")
+    UI_LOCAL_PORTS=("${old_local_ports[@]}")
+    return 1
+  fi
+  while (( i < ${#UI_NAMES[@]} )); do
+    if [[ "${UI_NAMES[$i]}" = "$current_profile" ]]; then
+      selected=$i
+      return 0
+    fi
+    i=$((i + 1))
+  done
+  (( selected >= ${#UI_NAMES[@]} )) && selected=$((${#UI_NAMES[@]} - 1))
+}
+
+ui_refresh_config() {
+  local profile=${UI_NAMES[$selected]}
+  ui_reload_profiles "$profile" || true
+  last_config_snapshot=$(ui_config_snapshot)
+  last_config_check=$SECONDS
+  redraw=1
 }
 
 ui_is_running() {
@@ -850,18 +898,22 @@ EOF
       "$state" "127.0.0.1:${UI_LOCAL_PORTS[$i]}"
     i=$((i + 1))
   done
-  printf '\n\033[2mUp/Down or j/k: select   Enter/t: start/stop   r: restart   l: logs   c: interactive connect\033[0m\n'
+  printf '\n\033[2mUp/Down or j/k: select   Enter/t: start/stop   r: restart   l: logs   c: interactive connect   f: reload config\033[0m\n'
   printf '\033[2m p: save profile password   g: save default password   d: delete profile password   x: delete default password   q: quit\033[0m\n'
 }
 
 ui_run() {
   local selected=0 key escape_key profile redraw=1 last_snapshot current_snapshot
+  local last_config_snapshot current_config_snapshot last_config_check
   load_ui_profiles
   require_command stty
+  require_command cksum
   UI_SAVED_STTY=$(stty -g) || die 'unable to read terminal settings'
   stty -echo -icanon min 1 time 0
   ui_install_trap
   printf '\033[?25l'
+  last_config_snapshot=$(ui_config_snapshot)
+  last_config_check=$SECONDS
 
   while :; do
     if (( redraw )); then
@@ -870,8 +922,17 @@ ui_run() {
       redraw=0
     fi
     key=
-    # Check status every 10 seconds, but redraw only when a status changes.
+    # Check status every 10 seconds, but check the INI file only once per
+    # minute to avoid unnecessary file reads and redraws.
     if ! IFS= read -rsn1 -t 10 key; then
+      if (( SECONDS - last_config_check >= 60 )); then
+        current_config_snapshot=$(ui_config_snapshot)
+        if [[ "$current_config_snapshot" != "$last_config_snapshot" ]]; then
+          ui_refresh_config
+        else
+          last_config_check=$SECONDS
+        fi
+      fi
       current_snapshot=$(ui_status_snapshot)
       if [[ "$current_snapshot" != "$last_snapshot" ]]; then
         redraw=1
@@ -903,6 +964,9 @@ ui_run() {
         profile=${UI_NAMES[$selected]}
         restart_tunnel "$profile"
         sleep 1
+        ;;
+      f|F)
+        ui_refresh_config
         ;;
       l|L)
         profile=${UI_NAMES[$selected]}
